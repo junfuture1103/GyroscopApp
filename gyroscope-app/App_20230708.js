@@ -76,37 +76,17 @@ export default function App() {
     getLocationPermission();
   }, []);
 
-  useEffect(() => {
-    const makeCSVfileinServer = async () => {
-      try {
-        const response = await fetch('http://192.168.0.135:3000/csv_init', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'APP1' // 사용자 마다 바꾸기
-          }
-        });
-
-        console.log('csv file init 요청이 서버에 전송되었습니다');
-      } catch (error) {
-        console.error('csv file init 요청 중 오류 발생:', error);
-      }
-    };
-
-    makeCSVfileinServer();
-  }, []);
-
   const uploadData = async (data) => {
     try {
       const { longitude, latitude, ...gyroData } = data;
-      // const csvData = JSON.stringify(gyroData);
+      const csvData = JSON.stringify(gyroData);
       const bodyData = {
         longitude,
         latitude,
-        gyroData
+        csvData
       };
 
-      const response = await fetch('http://192.168.0.135:3000/csv', {
+      const response = await fetch('http://localhost:3000/csv', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
