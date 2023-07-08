@@ -6,34 +6,61 @@ import * as shape from 'd3-shape';
 import * as Location from 'expo-location';
 
 export default function App() {
-  const [{ x, y, z }, setData] = useState({
+  const [{ x, y, z, longitude, altitude }, setData] = useState({
     x: 0,
     y: 0,
     z: 0,
+    longitude: 0,
+    altitude: 0,
   });
+
   const [subscription, setSubscription] = useState(null);
   const [dataSeries, setDataSeries] = useState([]);
-  const [bufferedData, setBufferedData] = useState([]);
 
   const _slow = () => Gyroscope.setUpdateInterval(1000);
   const _fast = () => Gyroscope.setUpdateInterval(16);
-
   const _subscribe = () => {
-    setSubscription(
-      Gyroscope.addListener(gyroscopeData => {
-        const { x, y, z } = gyroscopeData;
-        const formattedData = {
-          x: x.toFixed(16),
-          y: y.toFixed(16),
-          z: z.toFixed(16),
-          longitude: 0, // 초기값 설정
-          latitude: 0, // 초기값 설정
-        };
+    const getRealTimeLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('Permission to access location was denied');
+          return null;
+        }
 
-        setData(gyroscopeData);
-        setDataSeries(prevDataSeries => [...prevDataSeries, gyroscopeData.x]);
-        uploadData(formattedData); // 데이터 전송
-        setBufferedData(prevBufferedData => [...prevBufferedData, formattedData]);
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+
+        console.log('Location:', location.coords);
+        return location.coords;
+
+      } catch (error) {
+        console.error('Error fetching location:', error);
+        return null;
+      }
+    };
+
+    setSubscription(
+      Gyroscope.addListener(async (gyroscopeData) => {
+        const { x, y, z } = gyroscopeData;
+        const location = await getRealTimeLocation();
+
+        console.log(location?.longitude, location?.latitude);
+
+        if (location) {
+          const formattedData = {
+            x: x.toFixed(16),
+            y: y.toFixed(16),
+            z: z.toFixed(16),
+            longitude: location.longitude,
+            altitude: location.latitude,
+          };
+
+          setData(formattedData);
+          setDataSeries(prevDataSeries => [...prevDataSeries, gyroscopeData.x]);
+          uploadData(formattedData); // 데이터 전송
+        }
       })
     );
   };
@@ -48,34 +75,7 @@ export default function App() {
     return () => _unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const getLocationPermission = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Permission to access location was denied');
-        return;
-      }
-      // Permission granted, proceed with getting the location
-      getRealTimeLocation();
-    };
-
-    const getRealTimeLocation = async () => {
-      Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High, // Set the desired accuracy
-          timeInterval: 1000, // Update location every second (adjust as needed)
-          distanceInterval: 0, // Update location regardless of distance moved
-        },
-        (location) => {
-          console.log('Location:', location.coords);
-          // Process the received location data here
-        }
-      );
-    };
-
-    getLocationPermission();
-  }, []);
-
+  // data sending
   useEffect(() => {
     const makeCSVfileinServer = async () => {
       try {
@@ -88,22 +88,33 @@ export default function App() {
         });
 
         console.log('csv file init 요청이 서버에 전송되었습니다');
+
+        if (!response.ok) {
+          throw new Error('Failed to initialize CSV file');
+        }
+
       } catch (error) {
         console.error('csv file init 요청 중 오류 발생:', error);
+        // 오류를 띄우고 앱 종료
+        Alert.alert('Error', 'Failed to initialize CSV file');
+        // 앱 종료
+        if (Platform.OS === 'android') {
+          BackHandler.exitApp();
+        } else {
+          // iOS에서는 앱을 종료할 수 있는 다른 방법을 사용해야 합니다.
+          // 앱 종료 로직을 추가하세요.
+        }
       }
     };
 
     makeCSVfileinServer();
   }, []);
 
+
   const uploadData = async (data) => {
     try {
-      const { longitude, latitude, ...gyroData } = data;
-      // const csvData = JSON.stringify(gyroData);
       const bodyData = {
-        longitude,
-        latitude,
-        gyroData
+        ...data
       };
 
       const response = await fetch('http://192.168.0.135:3000/csv', {
@@ -120,14 +131,15 @@ export default function App() {
       console.error('데이터 전송 중 오류 발생:', error);
     }
   };
+
   return (
     <View style={styles.container}>
       <Text style={styles.text}>Gyroscope:</Text>
       <Text style={styles.text}>x: {x}</Text>
       <Text style={styles.text}>y: {y}</Text>
       <Text style={styles.text}>z: {z}</Text>
-      <Text style={styles.text}>Longitude: {bufferedData[bufferedData.length - 1]?.longitude}</Text>
-      <Text style={styles.text}>Latitude: {bufferedData[bufferedData.length - 1]?.latitude}</Text>
+      <Text style={styles.text}>Longitude: {longitude}</Text>
+      <Text style={styles.text}>Altitude: {altitude}</Text>
       <View style={styles.chartContainer}>
         <LineChart
           style={styles.chart}
@@ -150,7 +162,6 @@ export default function App() {
       </View>
     </View>
   );
-
 }
 
 const styles = StyleSheet.create({
